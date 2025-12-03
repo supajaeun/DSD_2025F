@@ -10,19 +10,19 @@ module TB_DUT;
   reg [5:0] iAddrRam;
   reg [15:0] iWrDtRam;
   reg [5:0] iNumOfCoeff;
-  reg signed [2:0] iFirIn; // signed로 선언하여 음수 표현 명확화
+  reg signed [2:0] iFirIn;
 
   // --- Outputs ---
   wire signed [15:0] oFirOut;
   wire [15:0] oWaveform;
 
   // --- Loop Variables ---
-  integer k;
   integer sample_idx;
+  integer k;
 
   // --- Clock Generation (12MHz) ---
   initial iClk12M = 0;
-  always #41.666 iClk12M = ~iClk12M; // Period approx 83.33ns
+  always #41.666 iClk12M = ~iClk12M;
 
   // --- Instantiation ---
   DUT_top u_DUT (
@@ -38,8 +38,8 @@ module TB_DUT;
     .oWaveform(oWaveform)
   );
 
-  // --- Task: 계수 쓰기 (Coefficient Write) ---
-  task write_coeff(input [5:0] addr, input [15:0] data);
+  // --- Task: 계수 쓰기 ---
+  task write_coeff(input [5:0] addr, input signed [15:0] data);
     begin
       @(posedge iClk12M);
       iAddrRam = addr;
@@ -50,8 +50,7 @@ module TB_DUT;
 
   // --- Main Test Sequence ---
   initial begin
-    // Waveform Dump (필요시 사용)
-    $dumpfile("waveform_impulse.vcd");
+    $dumpfile("waveform_kaiser_21taps.vcd");
     $dumpvars(0, TB_DUT);
 
     // 1. 초기화
@@ -60,25 +59,50 @@ module TB_DUT;
     iCoeffUpdateFlag = 0;
     iAddrRam = 0;
     iWrDtRam = 0;
-    iNumOfCoeff = 40; // 탭 개수 40개 설정
+    
+    // [중요] 21개만 사용하도록 설정
+    iNumOfCoeff = 21; 
     iFirIn = 3'd0;
 
     #200;
-    iRsn = 1; // Reset 해제
+    iRsn = 1;
     #100;
 
     // ---------------------------------------------------------
-    // 2. 계수 업데이트 (Coefficient Update)
+    // 2. 계수 업데이트 (Kaiser Window Center 21 Taps)
     // ---------------------------------------------------------
-    $display("--- [Step 1] Writing Coefficients ---");
+    $display("--- [Step 1] Writing 21 Coefficients (Center Taps) ---");
     iCoeffUpdateFlag = 1;
-    
-    // Impulse Response를 눈으로 확인하기 좋게
-    // 계수를 1, 2, 3 ... 40 처럼 증가하는 값으로 설정합니다.
-    // 이렇게 하면 출력 파형이 계단 모양(1,2,3...)으로 보여야 정상입니다.
-    for (k=0; k<40; k=k+1) begin
-        write_coeff(k[5:0], k + 1); // Coeff[0]=1, Coeff[1]=2 ...
-    end
+
+    // 카이저 윈도우의 가운데 부분 (n-10 ~ n+10) 21개를 입력합니다.
+    write_coeff(0,  13);    // n-10
+    write_coeff(1,  0);     // n-9
+    write_coeff(2,  -19);   // n-8
+    write_coeff(3,  24);    // n-7
+    write_coeff(4,  0);     // n-6
+    write_coeff(5,  -37);   // n-5
+    write_coeff(6,  48);    // n-4
+    write_coeff(7,  0);     // n-3
+    write_coeff(8,  -102);  // n-2
+    write_coeff(9,  206);   // n-1
+    write_coeff(10, 500);   // n (Center Tap)
+    write_coeff(11, 206);   // n+1
+    write_coeff(12, -102);  // n+2
+    write_coeff(13, 0);     // n+3
+    write_coeff(14, 48);    // n+4
+    write_coeff(15, -37);   // n+5
+    write_coeff(16, 0);     // n+6
+    write_coeff(17, 24);    // n+7
+    write_coeff(18, -19);   // n+8
+    write_coeff(19, 0);     // n+9
+    write_coeff(20, 13);    // n+10 (여기까지 21개)
+
+    // [중요] Zero Padding
+    // 21개를 처리하려면 4개씩 6번 루프(총 24개)를 돕니다.
+    // 따라서 21, 22, 23번지는 반드시 0으로 채워야 결과가 오염되지 않습니다.
+    write_coeff(21, 0);
+    write_coeff(22, 0);
+    write_coeff(23, 0);
 
     @(posedge iClk12M);
     iCoeffUpdateFlag = 0;
@@ -86,64 +110,42 @@ module TB_DUT;
     #200;
 
     // ---------------------------------------------------------
-    // 3. Impulse Response Test (Positive Impulse: 3'b001)
+    // 3. Positive Impulse Test (1)
     // ---------------------------------------------------------
-    $display("--- [Step 2] Testing Positive Impulse (3'b001) ---");
-    
-    // 교수님 요청: 64번의 샘플링 주기 동안 패턴 입력
-    // 주기: 600kHz (12MHz / 20 = 20 clocks)
+    $display("--- [Step 2] Testing Positive Impulse (1) ---");
     for (sample_idx = 0; sample_idx < 64; sample_idx = sample_idx + 1) begin
-        
-        // (1) 입력 데이터 설정
-        if (sample_idx == 0) begin
-            iFirIn = 3'b001; // 첫 번째만 Impulse (1)
-            $display("Injecting Impulse: 1");
-        end else begin
-            iFirIn = 3'b000; // 나머지는 0
-        end
+        if (sample_idx == 0) iFirIn = 3'b001; 
+        else iFirIn = 3'b000;
 
-        // (2) Sampling Enable Pulse (1 cycle duration)
         @(posedge iClk12M);
         iEnSample600k = 1; 
         @(posedge iClk12M);
         iEnSample600k = 0;
 
-        // (3) Wait for next sample (19 clocks to make it 20 clocks total)
+        // 21개 연산은 훨씬 빠르므로 대기 시간은 충분합니다.
         repeat(19) @(posedge iClk12M);
     end
 
-    #500; // 구분 딜레이
+    #500;
 
     // ---------------------------------------------------------
-    // 4. Impulse Response Test (Negative Impulse: 3'b111)
+    // 4. Negative Impulse Test (-1)
     // ---------------------------------------------------------
-    $display("--- [Step 3] Testing Negative Impulse (3'b111 -> -1) ---");
-
+    $display("--- [Step 3] Testing Negative Impulse (-1) ---");
     for (sample_idx = 0; sample_idx < 64; sample_idx = sample_idx + 1) begin
-        
-        // (1) 입력 데이터 설정
-        if (sample_idx == 0) begin
-            iFirIn = 3'b111; // -1 (2's complement 3bit)
-            $display("Injecting Impulse: -1");
-        end else begin
-            iFirIn = 3'b000; 
-        end
+        if (sample_idx == 0) iFirIn = 3'b111; 
+        else iFirIn = 3'b000;
 
-        // (2) Sampling Enable Pulse
         @(posedge iClk12M);
         iEnSample600k = 1; 
         @(posedge iClk12M);
         iEnSample600k = 0;
 
-        // (3) Wait 19 clocks
         repeat(19) @(posedge iClk12M);
     end
 
     #1000;
-    $display("Test Finished");
     $finish;
   end
 
 endmodule
-
-

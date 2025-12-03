@@ -64,7 +64,7 @@ module FSM (
                 else next_state <= WREND;
             FETCH: next_state <= LOOP; 
             LOOP: 
-                if (rCoeff_cnt >= (rNumOfCoeff - 1)) next_state <= FLUSH;
+                if (rCoeff_cnt >= rNumOfCoeff) next_state <= FLUSH;
                 else next_state <= LOOP;
             FLUSH: next_state <= SUM;
             SUM:   next_state <= OUTPUT;
@@ -134,7 +134,7 @@ module FSM (
             for(i=1; i<=4; i=i+1) rRdRam[i] <= 4'd0;
         end
         else if (state == LOOP) begin
-            if (rCoeff_cnt < rNumOfCoeff - 1) begin
+            if (rCoeff_cnt <= rNumOfCoeff - 1) begin
                 rCoeff_cnt <= rCoeff_cnt + 6'd1;
                 rRdRam[1] <= rRdRam[1] + 4'd1;
                 rRdRam[2] <= rRdRam[2] + 4'd1;
