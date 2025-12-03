@@ -1,0 +1,43 @@
+E:/project/DSD/FIR/DUT_top/MacUnit.v {1 {vlog -work work -vopt -stats=none E:/project/DSD/FIR/DUT_top/MacUnit.v
+Questa Intel Starter FPGA Edition-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module Mac
+
+Top level modules:
+	Mac
+
+} {} {}} E:/project/DSD/FIR/DUT_top/Sum.v {1 {vlog -work work -vopt -stats=none {E:\project\DSD\FIR\DUT_top\Sum.v}
+Questa Intel Starter FPGA Edition-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module Sum
+
+Top level modules:
+	Sum
+
+} {} {}} E:/project/DSD/FIR/DUT_top/FSM.v {1 {vlog -work work -vopt -stats=none E:/project/DSD/FIR/DUT_top/FSM.v
+Questa Intel Starter FPGA Edition-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module FSM
+
+Top level modules:
+	FSM
+
+} {} {}} E:/project/DSD/FIR/DUT_top/SpSram.v {1 {vlog -work work -vopt -stats=none E:/project/DSD/FIR/DUT_top/SpSram.v
+Questa Intel Starter FPGA Edition-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module SpSram
+
+Top level modules:
+	SpSram
+
+} {} {}} E:/project/DSD/FIR/DUT_top/DelayChain.v {1 {vlog -work work -vopt -stats=none E:/project/DSD/FIR/DUT_top/DelayChain.v
+Questa Intel Starter FPGA Edition-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module DelayChain
+
+Top level modules:
+	DelayChain
+
+} {} {}} E:/project/DSD/FIR/DUT_top/DUT_top.v {1 {vlog -work work -vopt -stats=none E:/project/DSD/FIR/DUT_top/DUT_top.v
+Questa Intel Starter FPGA Edition-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module DUT_top
+
+Top level modules:
+	DUT_top
+
+} {} {}}
