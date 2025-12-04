@@ -16,17 +16,26 @@ module TB_DUT;
   wire signed [15:0] oFirOut;
   wire [15:0] oWaveform;
 
+  // --- [추가] DUT에 들어가는 지연된 클럭 ---
+  wire wClk_DUT;
+
   // --- Loop Variables ---
   integer sample_idx;
   integer k;
 
   // --- Clock Generation (12MHz) ---
   initial iClk12M = 0;
-  always #41.666 iClk12M = ~iClk12M;
+  always #41.666 iClk12M = ~iClk12M; 
+
+  // --- [핵심] Clock Delay (Phase Shift) ---
+  // DUT 클럭을 2ns 지연시킵니다.
+  // TB가 posedge iClk12M에서 데이터를 바꾸면,
+  // 2ns 뒤에 posedge wClk_DUT가 발생하여 DUT가 안정된 데이터를 잡습니다.
+  assign #2 wClk_DUT = iClk12M; 
 
   // --- Instantiation ---
   DUT_top u_DUT (
-    .iClk12M(iClk12M),
+    .iClk12M(wClk_DUT), // <--- 지연된 클럭 연결
     .iRsn(iRsn),
     .iEnSample600k(iEnSample600k),
     .iCoeffUpdateFlag(iCoeffUpdateFlag),
@@ -38,19 +47,18 @@ module TB_DUT;
     .oWaveform(oWaveform)
   );
 
-  // --- Task: 계수 쓰기 ---
+  // --- Task: Positive Edge 기준 쓰기 (Delay 불필요) ---
   task write_coeff(input [5:0] addr, input signed [15:0] data);
     begin
-      @(posedge iClk12M);
+      @(posedge iClk12M); // TB 기준 클럭에 맞춤
       iAddrRam = addr;
       iWrDtRam = data;
-      @(posedge iClk12M);
     end
   endtask
 
   // --- Main Test Sequence ---
   initial begin
-    $dumpfile("waveform_kaiser_21taps.vcd");
+    $dumpfile("waveform_kaiser_delayed_clk.vcd");
     $dumpvars(0, TB_DUT);
 
     // 1. 초기화
@@ -59,47 +67,44 @@ module TB_DUT;
     iCoeffUpdateFlag = 0;
     iAddrRam = 0;
     iWrDtRam = 0;
-    
-    // [중요] 21개만 사용하도록 설정
     iNumOfCoeff = 21; 
     iFirIn = 3'd0;
 
     #200;
-    iRsn = 1;
+    iRsn = 1; // 리셋 해제
     #100;
 
     // ---------------------------------------------------------
-    // 2. 계수 업데이트 (Kaiser Window Center 21 Taps)
+    // 2. 계수 업데이트
     // ---------------------------------------------------------
-    $display("--- [Step 1] Writing 21 Coefficients (Center Taps) ---");
+    $display("--- [Step 1] Writing 21 Coefficients ---");
+    
+    @(posedge iClk12M); 
     iCoeffUpdateFlag = 1;
 
-    // 카이저 윈도우의 가운데 부분 (n-10 ~ n+10) 21개를 입력합니다.
-    write_coeff(0,  13);    // n-10
-    write_coeff(1,  0);     // n-9
-    write_coeff(2,  -19);   // n-8
-    write_coeff(3,  24);    // n-7
-    write_coeff(4,  0);     // n-6
-    write_coeff(5,  -37);   // n-5
-    write_coeff(6,  48);    // n-4
-    write_coeff(7,  0);     // n-3
-    write_coeff(8,  -102);  // n-2
-    write_coeff(9,  206);   // n-1
-    write_coeff(10, 500);   // n (Center Tap)
-    write_coeff(11, 206);   // n+1
-    write_coeff(12, -102);  // n+2
-    write_coeff(13, 0);     // n+3
-    write_coeff(14, 48);    // n+4
-    write_coeff(15, -37);   // n+5
-    write_coeff(16, 0);     // n+6
-    write_coeff(17, 24);    // n+7
-    write_coeff(18, -19);   // n+8
-    write_coeff(19, 0);     // n+9
-    write_coeff(20, 13);    // n+10 (여기까지 21개)
+    // 데이터 입력
+    write_coeff(0,  13);    
+    write_coeff(1,  0);     
+    write_coeff(2,  -19);   
+    write_coeff(3,  24);    
+    write_coeff(4,  0);     
+    write_coeff(5,  -37);   
+    write_coeff(6,  48);    
+    write_coeff(7,  0);     
+    write_coeff(8,  -102);  
+    write_coeff(9,  206);   
+    write_coeff(10, 500);   
+    write_coeff(11, 206);   
+    write_coeff(12, -102);  
+    write_coeff(13, 0);     
+    write_coeff(14, 48);    
+    write_coeff(15, -37);   
+    write_coeff(16, 0);     
+    write_coeff(17, 24);    
+    write_coeff(18, -19);   
+    write_coeff(19, 0);     
+    write_coeff(20, 13);    
 
-    // [중요] Zero Padding
-    // 21개를 처리하려면 4개씩 6번 루프(총 24개)를 돕니다.
-    // 따라서 21, 22, 23번지는 반드시 0으로 채워야 결과가 오염되지 않습니다.
     write_coeff(21, 0);
     write_coeff(22, 0);
     write_coeff(23, 0);
@@ -114,15 +119,18 @@ module TB_DUT;
     // ---------------------------------------------------------
     $display("--- [Step 2] Testing Positive Impulse (1) ---");
     for (sample_idx = 0; sample_idx < 64; sample_idx = sample_idx + 1) begin
+        
+        @(posedge iClk12M);
+        
         if (sample_idx == 0) iFirIn = 3'b001; 
         else iFirIn = 3'b000;
 
-        @(posedge iClk12M);
         iEnSample600k = 1; 
-        @(posedge iClk12M);
-        iEnSample600k = 0;
 
-        // 21개 연산은 훨씬 빠르므로 대기 시간은 충분합니다.
+        @(posedge iClk12M);
+        iEnSample600k = 0; 
+
+        // 대기 (19사이클)
         repeat(19) @(posedge iClk12M);
     end
 
@@ -133,13 +141,16 @@ module TB_DUT;
     // ---------------------------------------------------------
     $display("--- [Step 3] Testing Negative Impulse (-1) ---");
     for (sample_idx = 0; sample_idx < 64; sample_idx = sample_idx + 1) begin
+        
+        @(posedge iClk12M);
+        
         if (sample_idx == 0) iFirIn = 3'b111; 
         else iFirIn = 3'b000;
 
-        @(posedge iClk12M);
         iEnSample600k = 1; 
+
         @(posedge iClk12M);
-        iEnSample600k = 0;
+        iEnSample600k = 0; 
 
         repeat(19) @(posedge iClk12M);
     end

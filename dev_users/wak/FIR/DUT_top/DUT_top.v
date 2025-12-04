@@ -22,17 +22,19 @@ module DUT_top(
     wire    [15:0]  wWrDtRam1, wWrDtRam2, wWrDtRam3, wWrDtRam4;
     wire    [15:0]  wRdDtRam1, wRdDtRam2, wRdDtRam3, wRdDtRam4;
 
-    // --- Pipeline Registers ---
-    reg             rEnDelay_d1;
+    // --- Pipeline Control Registers ---
     
-    // [수정] Sum은 3박자 기다려야 하므로 d1, d2, d3 모두 필요
-    reg             rEnSum_d1, rEnSum_d2, rEnSum_d3;
+    // [요청 2] EnDelay 레지스터 제거 (Wire 직접 사용) -> wEnDelay 사용
     
-    // [수정] Mul은 1박자(d1), Add/Acc는 2박자(d2) 기다려야 함
+    // [요청 3] EnSum 레지스터 제거 (Wire 직접 사용) -> wEnSum 사용
+    // reg rEnSum_d1... 삭제됨
+    
+    // [요청 1] Mul, Add, Acc는 1사이클 단축 (d2 -> d1)
     reg             rEnMul_d1; 
-    reg             rEnAdd_d1, rEnAdd_d2; // d2 추가
-    reg             rEnAcc_d1, rEnAcc_d2; // d2 추가
+    reg             rEnAdd_d1; 
+    reg             rEnAcc_d1; 
     
+    // Address Pipeline (SRAM Read Latency 대응용)
     reg     [3:0]   rAddrRam1_d1, rAddrRam2_d1, rAddrRam3_d1, rAddrRam4_d1;
 
     // Delay & Mac Wires
@@ -45,38 +47,32 @@ module DUT_top(
     reg  signed [2:0] rTargetDelay1, rTargetDelay2, rTargetDelay3, rTargetDelay4;
     wire signed [24:0] wMac1, wMac2, wMac3, wMac4;
 
-    // --- Pipeline Logic (핵심 수정 부분) ---
+    // --- Pipeline Logic ---
     always @(posedge iClk12M) begin
         if (!iRsn) begin
-            rEnDelay_d1  <= 0;
-            
-            rEnSum_d1    <= 0; rEnSum_d2 <= 0; rEnSum_d3 <= 0;
-            
-            rEnMul_d1    <= 0;
-            rEnAdd_d1    <= 0; rEnAdd_d2 <= 0; // Reset d2
-            rEnAcc_d1    <= 0; rEnAcc_d2 <= 0; // Reset d2
+            // Pipeline Reset (d1만 사용)
+            // rEnSum_d1 <= 0; // 삭제됨 (Wire 사용)
+            rEnMul_d1 <= 0;
+            rEnAdd_d1 <= 0;
+            rEnAcc_d1 <= 0;
             
             rAddrRam1_d1 <= 0; rAddrRam2_d1 <= 0; rAddrRam3_d1 <= 0; rAddrRam4_d1 <= 0;
+
         end else begin
-            // Stage 1: Align with SRAM Read (1 clock latency)
-            rEnDelay_d1  <= wEnDelay;
-            rEnSum_d1    <= wEnSum;
+            // --------------------------------------------------------
+            // Stage 1 (d1): SRAM 데이터 출력 시점 & 연산 수행
+            // --------------------------------------------------------
             
-            rEnMul_d1    <= wEnMul1; // Mul은 여기서 사용 (입력과 동기화)
-            rEnAdd_d1    <= wEnAdd1;
-            rEnAcc_d1    <= wEnAcc1;
+            // [MAC 제어] d1 타이밍에 수행 (1사이클 단축)
+            rEnMul_d1    <= wEnMul1; 
+            rEnAdd_d1    <= wEnAdd1; 
+            rEnAcc_d1    <= wEnAcc1; 
             
+            // [SUM 제어] Wire(wEnSum) 사용하므로 레지스터 할당 불필요
+            
+            // [Address Latch] (MUX 선택용)
             rAddrRam1_d1 <= wAddrRam1; rAddrRam2_d1 <= wAddrRam2;
             rAddrRam3_d1 <= wAddrRam3; rAddrRam4_d1 <= wAddrRam4;
-
-            // Stage 2: Align with Mul Result (2 clock latency from start)
-            rEnSum_d2    <= rEnSum_d1;
-            
-            rEnAdd_d2    <= rEnAdd_d1; // [중요] Add는 여기서 사용 (Mul결과와 동기화)
-            rEnAcc_d2    <= rEnAcc_d1; // [중요] Acc는 여기서 사용 (Mul결과와 동기화)
-
-            // Stage 3: Align with Acc Result (3 clock latency from start)
-            rEnSum_d3    <= rEnSum_d2; // Sum은 여기서 사용 (최종 결과와 동기화)
         end
     end
 
@@ -96,9 +92,9 @@ module DUT_top(
     );
 
     // 2. DelayChain Instance
+    // [요청 2 완료] wEnDelay(Wire) 바로 연결 (지연 없음)
     DelayChain u_DelayChain (
-        .iClk12M(iClk12M), .iRsn(iRsn), .iEnDelay(rEnDelay_d1), .iFirIn(iFirIn),
-        // ... (이전과 동일) ...
+        .iClk12M(iClk12M), .iRsn(iRsn), .iEnDelay(wEnDelay), .iFirIn(iFirIn),
         .oDelay1(wDelay1), .oDelay2(wDelay2), .oDelay3(wDelay3), .oDelay4(wDelay4),
         .oDelay5(wDelay5), .oDelay6(wDelay6), .oDelay7(wDelay7), .oDelay8(wDelay8),
         .oDelay9(wDelay9), .oDelay10(wDelay10), .oDelay11(wDelay11), .oDelay12(wDelay12),
@@ -117,7 +113,7 @@ module DUT_top(
     SpSram #(.DATA_WIDTH(16), .SRAM_DEPTH(16)) u_SRAM3 (.iClk(iClk12M), .iRsn(iRsn), .iCsn(wCsnRam3), .iWrn(~wWrnRam3), .iAddr(wAddrRam3), .iWrDt(wWrDtRam3), .oRdDt(wRdDtRam3));
     SpSram #(.DATA_WIDTH(16), .SRAM_DEPTH(16)) u_SRAM4 (.iClk(iClk12M), .iRsn(iRsn), .iCsn(wCsnRam4), .iWrn(~wWrnRam4), .iAddr(wAddrRam4), .iWrDt(wWrDtRam4), .oRdDt(wRdDtRam4));
 
-    // 4. MUX Logic
+    // 4. MUX Logic (rAddrRam_d1 사용)
     always @(*) case(rAddrRam1_d1)
         4'd0: rTargetDelay1 = wDelay1;  4'd1: rTargetDelay1 = wDelay5;
         4'd2: rTargetDelay1 = wDelay9;  4'd3: rTargetDelay1 = wDelay13; 
@@ -152,41 +148,44 @@ module DUT_top(
     endcase
 
     // 5. MAC Units
-    // [수정 포인트]
-    // iEnMul: rEnMul_d1 (입력 데이터와 타이밍 맞춤)
-    // iEnAdd/Acc: rEnAdd_d2, rEnAcc_d2 (곱셈 결과 rMulResult와 타이밍 맞춤)
+    // [요청 1 & 3 완료] d1 신호 사용 + 데이터 바로 사용(wRdDtRam, rTargetDelay)
     Mac #(.WIDTH(16), .OUT_WIDTH(25)) u_Mac1 (
         .iClk12M(iClk12M), .iRsn(iRsn), 
-        .iEnAdd(rEnAdd_d2), .iEnAcc(rEnAcc_d2), 
-        .iEnMul(rEnMul_d1), 
-        .iDelay(rTargetDelay1), .iCoeff(wRdDtRam1), .oMac(wMac1)
+        .iEnAdd(rEnAdd_d1), .iEnAcc(rEnAcc_d1), // d1
+        .iEnMul(rEnMul_d1),                     // d1
+        .iDelay(rTargetDelay1), .iCoeff(wRdDtRam1), // 바로 연결
+        .oMac(wMac1)
     );
 
     Mac #(.WIDTH(16), .OUT_WIDTH(25)) u_Mac2 (
         .iClk12M(iClk12M), .iRsn(iRsn), 
-        .iEnAdd(rEnAdd_d2), .iEnAcc(rEnAcc_d2), 
+        .iEnAdd(rEnAdd_d1), .iEnAcc(rEnAcc_d1), 
         .iEnMul(rEnMul_d1), 
-        .iDelay(rTargetDelay2), .iCoeff(wRdDtRam2), .oMac(wMac2)
+        .iDelay(rTargetDelay2), .iCoeff(wRdDtRam2), 
+        .oMac(wMac2)
     );
 
     Mac #(.WIDTH(16), .OUT_WIDTH(25)) u_Mac3 (
         .iClk12M(iClk12M), .iRsn(iRsn), 
-        .iEnAdd(rEnAdd_d2), .iEnAcc(rEnAcc_d2), 
+        .iEnAdd(rEnAdd_d1), .iEnAcc(rEnAcc_d1), 
         .iEnMul(rEnMul_d1), 
-        .iDelay(rTargetDelay3), .iCoeff(wRdDtRam3), .oMac(wMac3)
+        .iDelay(rTargetDelay3), .iCoeff(wRdDtRam3), 
+        .oMac(wMac3)
     );
 
     Mac #(.WIDTH(16), .OUT_WIDTH(25)) u_Mac4 (
         .iClk12M(iClk12M), .iRsn(iRsn), 
-        .iEnAdd(rEnAdd_d2), .iEnAcc(rEnAcc_d2), 
+        .iEnAdd(rEnAdd_d1), .iEnAcc(rEnAcc_d1), 
         .iEnMul(rEnMul_d1), 
-        .iDelay(rTargetDelay4), .iCoeff(wRdDtRam4), .oMac(wMac4)
+        .iDelay(rTargetDelay4), .iCoeff(wRdDtRam4), 
+        .oMac(wMac4)
     );
 
     // 6. SUM
+    // [요청 3 완료] wEnSum(Wire) 바로 연결 (지연 없음)
     Sum #(.IN_WIDTH(25), .OUT_WIDTH(16)) u_Sum (
-        .iClk12M(iClk12M), .iRsn(iRsn), .iEnSample600k(iEnSample600k), 
-        .iEnSum(rEnSum_d1), 
+        .iClk12M(iClk12M), .iRsn(iRsn),
+        .iEnSum(wEnSum), // <--- 여기! Wire를 바로 연결
         .iMac1(wMac1), .iMac2(wMac2), .iMac3(wMac3), .iMac4(wMac4), .oFirOut(oFirOut)
     );
 

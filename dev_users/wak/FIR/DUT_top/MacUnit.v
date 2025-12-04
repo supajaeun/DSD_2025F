@@ -1,55 +1,61 @@
 `timescale 1ns/10ps
 
 module Mac #(
-    parameter WIDTH = 16,
-    parameter OUT_WIDTH = 25 
+    parameter WIDTH      = 16,   // iCoeff Width
+    parameter DATA_WIDTH = 3,    // iDelay Width
+    parameter OUT_WIDTH  = 25    // OUT (Sum input) width
 ) (
     input                         iClk12M,
     input                         iRsn,
 
-    // Enable input (지연된 신호를 받아야 함)
-    input                         iEnAdd,           // 1: Load (초기화)
-    input                         iEnAcc,           // 1: Accumulate (누적)
-    input                         iEnMul,           // [추가] 1: Multiply (곱셈)
+    input                         iEnAdd,
+    input                         iEnAcc,
+    input                         iEnMul,
     
-    input  signed  [2:0]          iDelay,
-    input  signed  [WIDTH-1:0]    iCoeff,
+    input  signed [DATA_WIDTH-1:0] iDelay,
+    input  signed [WIDTH-1:0]      iCoeff,
 
-    output signed  [OUT_WIDTH-1:0] oMac
+    output signed [OUT_WIDTH-1:0]  oMac
 );
 
-    // 내부 레지스터
-    reg  signed [WIDTH+2:0]       rMulResult; // [18:0] (3bit * 16bit)
-    reg  signed [OUT_WIDTH-1:0]   rAccResult; // [24:0]
+    /*********************************************************
+     * 1) 정확한 sign-extension (하드코딩 없이 정확한 의미 유지)
+     *********************************************************/
+    wire signed [17:0] delay_s =
+        {{(18-DATA_WIDTH){iDelay[DATA_WIDTH-1]}}, iDelay};
 
-    // 1. Multiply & Register (1 Clock Latency)
-    // [수정] iEnMul 신호가 1일 때만 곱셈 수행
+    wire signed [17:0] coeff_s =
+        {{(18-WIDTH){iCoeff[WIDTH-1]}}, iCoeff};
+
+    /*********************************************************
+     * 2) 최소 비트폭 full-precision multiply (18bit × 18bit → 36bit)
+     *********************************************************/
+    wire signed [35:0] mul_full_big =
+        (iEnMul) ? (coeff_s * delay_s) : 36'sd0;
+
+    // 우리가 필요한 곱셈 결과의 범위는 18bit → 하위 18bit만 사용
+    wire signed [17:0] mul_full = mul_full_big[17:0];
+
+
+    /*********************************************************
+     * 3) Accumulator: 23bit (40tap 누산 최대값 보장)
+     *********************************************************/
+    reg signed [22:0] acc_reg;
+
     always @(posedge iClk12M or negedge iRsn) begin
-        if(!iRsn) begin
-            rMulResult <= 0;
-        end
+        if (!iRsn)
+            acc_reg <= 23'sd0;
         else begin
-            if (iEnMul) rMulResult <= iCoeff * iDelay; // Enable: 곱하기 수행
-            else        rMulResult <= 0;               // Disable: 0으로 클리어
+            if (iEnAdd)
+                acc_reg <= mul_full;
+            else if (iEnAcc)
+                acc_reg <= acc_reg + mul_full;
         end
     end
 
-    // 2. Accumulator (1 Clock Latency after Mul)
-    // 저장된 곱셈 결과(rMulResult)를 더함
-    always @(posedge iClk12M or negedge iRsn) begin
-        if(!iRsn) begin
-            rAccResult  <= {OUT_WIDTH{1'b0}};
-        end
-        else begin
-            if (iEnAdd) begin
-                rAccResult <= rMulResult; // Load (첫 번째 값은 그냥 대입)
-            end
-            else if (iEnAcc) begin
-                rAccResult <= rAccResult + rMulResult; // Accumulate (이후 값은 더하기)
-            end
-        end
-    end
-
-    assign oMac = rAccResult;
+    /*********************************************************
+     * 4) 최종 출력: 기존 OUT_WIDTH(25bit)에 sign-extend하여 전달
+     *********************************************************/
+    assign oMac = {{(OUT_WIDTH-23){acc_reg[22]}}, acc_reg};
 
 endmodule
